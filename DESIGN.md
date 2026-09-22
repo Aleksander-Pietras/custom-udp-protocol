@@ -11,7 +11,7 @@ The finished protocol will
 * Handle duplicate packets
 
 ### Plan
-- [ ] Create a simple localhost connection
+- [x] Create a simple localhost connection
 - [ ] Create a function for setting up a header
 - [ ] Create a function for ordering packets
 - [ ] Add a checksum
