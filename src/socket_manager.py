@@ -9,73 +9,58 @@ PORT: int = 9000
 BUFFER_SIZE: int = 1024 # Max number of bytes to read per incoming packet
 
 def send_packets(ip_address: str, packets:tuple):
+    """Sends byte payloads to a designated IP address over UDP"""
     try:
         # Initalise UDP socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            packets_size = 0
+            for pack in packets:
+                sock.sendto(pack, (ip_address, PORT))
+                packets_size += len(pack)
 
-        packets_size = 0
-        for pack in packets:
-            sock.sendto(pack, (ip_address, PORT))
-            packets_size += len(pack)
+            print(f"Sent {packets_size} bytes to {ip_address}:{PORT}")
 
-    # except I don't know how this could fail
-
-    finally:
-        print(f"Sent {packets_size} bytes to {ip_address}:{PORT}")
-        sock.close()
-
+    except socket.gaierror:
+    # Triggers if the IP address string is malformed or hostname resolution fails 
+        print(f"Error: Invalid IP address or hostname '{ip_address}'") 
+    except OSError as e:
+    # Triggers on general OS/network level errors (e.g., interface down) 
+        print(f"Network error while sending: {e}")
 
 
 def recive_packet():
+    """Listens continuously for incoming UDP packets with non-blocking timeout checks."""
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind('', PORT)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # Bind to all local interfaces ('') on the designated port
+            sock.bind(('', PORT))
 
-        sock.settimeout(1.0)
+            # Setting a short timeout prevents blocking forever and allows
+            # Python to process signals (like Ctrl+C / KeyboardInterrupt) across platforms
+            sock.settimeout(1.0)
+            print(f"Listening on port {PORT}... (Press Ctrl+C to stop)")
 
-        counter: int = 0
-        while True:
-            if counter > 20:
-                raise KeyboardInterrupt
+            while True:
+                try:
+                    data, sender_address = sock.recvfrom(BUFFER_SIZE)
 
-            try:
-                # Block and wait until a packet arrives
-                # recvfrom returns a tuple: (raw_bytes, (sender_ip, sender_port))
-                data, sender_address = sock.recvfrom(BUFFER_SIZE)
-            except socket.timeout:
-                counter += 1
-                print(f"Waited for packets: {counter} seconds.")
-                continue
-            
-            decoded_message = data.decode("utf-8")
-            
-            print(f"Received {len(data)} bytes from {sender_address[0]}:{sender_address[1]}")
-            print(f"Message content: '{decoded_message}'\n")
+                except TimeoutError:
+                # 1-second timeout reached with no packet received.
+                # Simply loop around and keep listening.
+                    continue
+                
+            # Process incoming datagram 
+                try:
+                    decoded_message = data.decode("utf-8")
+                    print(f"Received {len(data)} bytes from {sender_address}:{sender_address[1]}")
+                    print(f"Message content: '{decoded_message}'\\n")
+                except UnicodeDecodeError:
+                    # Catches cases where raw binary datagrams (e.g. headers/checksums) can't be decoded as UTF-8
+                    print(f"Received {len(data)} raw binary bytes from {sender_address}:{sender_address[1]}\\n")
 
-    except KeyboardInterrupt: #idk how to actally do this, it doesn't stop when I press CRL + C or any other key
-        print("\nShutting down receiver...")
-    finally:
-        sock.close()
+    except KeyboardInterrupt:
+        print("\\nShutting down receiver...")
+    except OSError as e:
+        # Triggers if another application is already using port 9000 (Address already in use)
+        print(f"Socket binding error on port {PORT}: {e}")
 
-
-
-
-if __name__ == "__main__":
-    payload = [
-        b"Message 1",
-        b"Message 2"
-    ]
-
-    ip = "127.0.0.1"
-
-    send_packets(ip, payload)
-    
-
-"""Temporary design notes
-- Users do not enter an ip address when sending a message, they select a locating and a look up table or a DNS request is made to find the correct ip address
-therefore, I will remove the fixed ip address
-- Port number is fixed, like for whatsapp it does not change depending who is sending the packet
-however, it might change in the future when changing devices, so I'll keep it in mind, but for now I will keep it fixed
-- I think the packet is already wrapped with the header, it will have: session_id, checksum, order_id, and something to do with encryption maybe
-therefore, f:send_packet does not handle the header and just sends the packet assuming its been correctly handled
-"""
